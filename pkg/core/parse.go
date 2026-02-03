@@ -1,0 +1,124 @@
+package core
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+)
+
+// TraceLine 表示日志中的一条指令快照
+type TraceLine struct {
+	Step   uint32
+	Addr   uint64
+	Offset uint64
+	Instr  string
+	Regs   [31]uint64 // x0-x30
+	SP     uint64
+	PC     uint64
+}
+
+// ParseLine 解析日志中的一行
+func ParseLine(line string) (*TraceLine, error) {
+	fields := strings.Split(line, "|")
+	if len(fields) != 37 {
+		return nil, fmt.Errorf("字段数量不对: %d", len(fields))
+	}
+
+	t := &TraceLine{}
+
+	// step
+
+	step, err := strconv.ParseUint(strings.TrimSpace(fields[0]), 16, 32)
+	// step, err := strconv.ParseUint(strings.TrimSpace(fields[0]), 0, 32)
+	if err != nil {
+		return nil, fmt.Errorf("解析 step 失败: %v", err)
+	}
+	t.Step = uint32(step)
+
+	// addr
+	addr, err := strconv.ParseUint(strings.TrimSpace(fields[1]), 0, 64)
+	if err != nil {
+		return nil, fmt.Errorf("解析 addr 失败: %v", err)
+	}
+	t.Addr = addr
+
+	// offset
+	offset, err := strconv.ParseUint(strings.TrimSpace(fields[2]), 0, 64)
+	if err != nil {
+		return nil, fmt.Errorf("解析 offset 失败: %v", err)
+	}
+	t.Offset = offset
+
+	// instr
+	t.Instr = strings.TrimSpace(fields[3])
+	if strings.HasPrefix(t.Instr, "\"") && strings.HasSuffix(t.Instr, "\"") {
+		t.Instr = t.Instr[1 : len(t.Instr)-1]
+	}
+
+	// x0-x28
+	for i := 0; i <= 28; i++ {
+		val, err := strconv.ParseUint(strings.TrimSpace(fields[4+i]), 0, 64)
+		if err != nil {
+			return nil, fmt.Errorf("解析 x%d 失败: %v", i, err)
+		}
+		t.Regs[i] = val
+	}
+
+	// x29
+	val, err := strconv.ParseUint(strings.TrimSpace(fields[33]), 0, 64)
+	if err != nil {
+		return nil, fmt.Errorf("解析 x29 失败: %v", err)
+	}
+	t.Regs[29] = val
+
+	// x30
+	val, err = strconv.ParseUint(strings.TrimSpace(fields[34]), 0, 64)
+	if err != nil {
+		return nil, fmt.Errorf("解析 x30 失败: %v", err)
+	}
+	t.Regs[30] = val
+
+	// sp
+	val, err = strconv.ParseUint(strings.TrimSpace(fields[35]), 0, 64)
+	if err != nil {
+		return nil, fmt.Errorf("解析 sp 失败: %v", err)
+	}
+	t.SP = val
+
+	// pc
+	val, err = strconv.ParseUint(strings.TrimSpace(fields[36]), 0, 64)
+	if err != nil {
+		return nil, fmt.Errorf("解析 pc 失败: %v", err)
+	}
+	t.PC = val
+
+	return t, nil
+}
+
+// 流式读取日志文件
+func ReadTraceFile(filename string, callback func(*TraceLine)) error {
+	file, err := os.Open(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		traceLine, err := ParseLine(line)
+		if err != nil {
+			fmt.Println("解析错误:", err)
+			continue
+		}
+		callback(traceLine)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+
+	return nil
+}
