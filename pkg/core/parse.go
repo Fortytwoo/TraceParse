@@ -123,9 +123,14 @@ func ReadTraceFile(filename string, callback func(*TraceLine)) error {
 	return nil
 }
 
-// err := core.ReadTraceFile("../assets/code.log", func(t *core.TraceLine) {
-// 	fmt.Println(t.Step, t.Addr, t.Instr)
-// })
-// if err != nil {
-// 	fmt.Println("读取日志失败:", err)
-// }
+// 读取指令文件，发送到 channel
+func LoadInstructions(filename string, ch chan<- string) {
+	defer close(ch)
+	err := ReadTraceFile(filename, func(t *TraceLine) {
+		line := fmt.Sprintf("%04d | 0x%x | %s", t.Step, t.Addr, t.Instr)
+		ch <- line
+	})
+	if err != nil {
+		fmt.Println("读取日志失败:", err)
+	}
+}
