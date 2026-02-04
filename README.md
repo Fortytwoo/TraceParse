@@ -100,16 +100,35 @@
 ```bash
 git clone https://github.com/yourusername/TraceParse.git
 cd TraceParse
-go build -o traceparse main.go
+go build -o traceparse ./cmd
 ```
 
-运行
+### 运行
+
+指定 trace 文件（仓库内已带示例 `your_trace.log`）：
 
 ```bash
 ./traceparse -f your_trace.log
 ```
 
-不指定文件会加载示例数据
+Windows 下：
+
+```powershell
+.\traceparse.exe -f your_trace.log
+```
+
+不指定 `-f` 会加载内置示例数据。
+
+### 发布 Release（推送 tag）
+
+先确认远程名：`git remote -v`。若远程名为 `TraceParse` 则：
+
+```powershell
+git tag v0.0.1
+git push TraceParse v0.0.1
+```
+
+若远程名为 `origin` 则用 `git push origin v0.0.1`。
 
 ## 使用方式
 
