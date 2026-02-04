@@ -20,6 +20,7 @@ type AppState struct {
 	InputField   *tview.InputField
 	AutoStepChan chan bool // 用于控制自动步进
 	MemoryView   *tview.TextView
+	LoadedFile   string // 记录加载的文件名
 }
 
 func NewAsmView() *tview.TextView {
@@ -102,6 +103,11 @@ func UpdateAsmView(state *AppState) {
 	total := state.TraceManager.Total()
 	currentIdx := state.TraceManager.CurrentIndex
 
+	if total == 0 {
+		state.AsmView.SetText("No instructions loaded")
+		return
+	}
+
 	// 计算显示范围
 	windowSize := 51 // 显示的行数
 	start := currentIdx - windowSize/2
@@ -120,7 +126,16 @@ func UpdateAsmView(state *AppState) {
 	var sb strings.Builder
 	for i := start; i < end; i++ {
 		inst := state.TraceManager.GetLine(i)
+		
+		// 注意：GetLine 可能返回 nil，如果该行不在当前加载的窗口内
 		if inst == nil {
+			// 显示行号，但内容为加载中
+			line := fmt.Sprintf("%4d | [gray]Loading...[-]", i+1)
+			if i == currentIdx {
+				sb.WriteString(fmt.Sprintf("[yellow]▶ %s[white]\n", line))
+			} else {
+				sb.WriteString(fmt.Sprintf("  %s\n", line))
+			}
 			continue
 		}
 
@@ -256,21 +271,10 @@ func UpdateStatusView(state *AppState) {
 
 // LoadInstructionsFromFile 加载指令文件
 func LoadInstructionsFromFile(filename string, state *AppState) error {
-	tm := state.TraceManager
-
-	// 清空现有指令
-	tm.Instructions = make([]*core.TraceLine, 0)
-	tm.CurrentIndex = 0
-	tm.PrevLine = nil
-
-	// 重置寄存器检测器
-	state.User.RegDetector = core.NewRegisterChangeDetector()
-
-	// 读取文件
-	err := core.ReadTraceFile(filename, func(t *core.TraceLine) {
-		tm.AddInstruction(t)
-	})
-
+	state.LoadedFile = filename
+	
+	// 使用简化的加载方法
+	err := core.ReadTraceFile(filename, state.TraceManager)
 	if err != nil {
 		return err
 	}
@@ -279,6 +283,7 @@ func LoadInstructionsFromFile(filename string, state *AppState) error {
 	state.User.LastCommand = nil
 	state.User.RepeatCount = 0
 	state.User.AutoStep = false
+	state.User.RegDetector = core.NewRegisterChangeDetector()
 
 	// 更新显示
 	UpdateDisplay(state, nil)

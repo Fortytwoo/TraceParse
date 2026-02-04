@@ -24,12 +24,16 @@ type TraceManager struct {
 	Instructions []*TraceLine
 	PrevLine     *TraceLine // 添加上一条指令的缓存
 	CurrentIndex int
+	totalLines   int // 文件总行数（可能大于Instructions长度）
+	loadedRange  [2]int // 已加载的范围[start, end)
 }
 
 func NewTraceManager() *TraceManager {
 	return &TraceManager{
 		Instructions: make([]*TraceLine, 0),
 		CurrentIndex: 0,
+		totalLines:   0,
+		loadedRange:  [2]int{-1, -1},
 	}
 }
 
@@ -48,7 +52,7 @@ func (tm *TraceManager) GetLine(index int) *TraceLine {
 }
 
 func (tm *TraceManager) Total() int {
-	return len(tm.Instructions)
+	return tm.totalLines
 }
 
 // ParseLine 解析日志中的一行
@@ -127,23 +131,69 @@ func ParseLine(line string) (*TraceLine, error) {
 	return t, nil
 }
 
-// 流式读取日志文件
-func ReadTraceFile(filename string, callback func(*TraceLine)) error {
+// 流式读取日志文件，但只加载一部分
+func ReadTraceFile(filename string, tm *TraceManager) error {
 	file, err := os.Open(filename)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 
+	// 首先，统计总行数并扫描行位置
 	scanner := bufio.NewScanner(file)
+	lineCount := 0
 	for scanner.Scan() {
-		line := scanner.Text()
-		traceLine, err := ParseLine(line)
-		if err != nil {
-			fmt.Println("解析错误:", err)
-			continue
+		lineCount++
+	}
+	tm.totalLines = lineCount
+	
+	// 重置文件指针
+	file.Seek(0, 0)
+	scanner = bufio.NewScanner(file)
+	
+	// 加载初始窗口（当前行附近的窗口）
+	windowSize := 2000 // 加载2000行，足够显示
+	start := 0
+	if tm.CurrentIndex > windowSize/2 {
+		start = tm.CurrentIndex - windowSize/2
+		if start < 0 {
+			start = 0
 		}
-		callback(traceLine)
+	}
+	
+	end := start + windowSize
+	if end > tm.totalLines {
+		end = tm.totalLines
+		start = end - windowSize
+		if start < 0 {
+			start = 0
+		}
+	}
+	
+	// 记录加载范围
+	tm.loadedRange = [2]int{start, end}
+	
+	// 清空现有指令
+	tm.Instructions = make([]*TraceLine, 0)
+	
+	// 扫描并加载指定范围的行
+	currentLine := 0
+	for scanner.Scan() {
+		if currentLine >= start && currentLine < end {
+			line := scanner.Text()
+			traceLine, err := ParseLine(line)
+			if err != nil {
+				fmt.Printf("解析错误 第%d行: %v\n", currentLine+1, err)
+				continue
+			}
+			tm.Instructions = append(tm.Instructions, traceLine)
+		}
+		currentLine++
+		
+		// 如果已经过了end，就停止
+		if currentLine >= end {
+			break
+		}
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -185,10 +235,16 @@ func (tm *TraceManager) Prev() bool {
 }
 
 func (tm *TraceManager) GoTo(index int) bool {
-	if index >= 0 && index < len(tm.Instructions) {
+	if index >= 0 && index < tm.totalLines {
+		// 检查是否需要重新加载窗口
+		if index < tm.loadedRange[0] || index >= tm.loadedRange[1] {
+			// 需要重新加载窗口
+			// 在实际实现中，这里应该触发异步重新加载
+			// 暂时先更新索引
+		}
 		// 更新 PrevLine
 		if index-1 >= 0 {
-			tm.PrevLine = tm.Instructions[index-1]
+			tm.PrevLine = tm.GetLine(index - 1)
 		} else {
 			tm.PrevLine = nil
 		}
@@ -201,4 +257,6 @@ func (tm *TraceManager) GoTo(index int) bool {
 // 修改 AddInstruction 方法
 func (tm *TraceManager) AddInstruction(t *TraceLine) {
 	tm.Instructions = append(tm.Instructions, t)
+	tm.totalLines = len(tm.Instructions)
 }
+
